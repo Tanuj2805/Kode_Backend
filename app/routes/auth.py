@@ -38,7 +38,7 @@ def set_auth_cookie(response: Response, token: str):
         key="access_token",
         value=token,
         httponly=True,  # Prevents JavaScript access (XSS protection)
-        secure=SECURE_COOKIE,  # Only send over HTTPS in production
+        secure=True,  # Only send over HTTPS in production
         samesite="none",  # CSRF protection
         max_age=COOKIE_MAX_AGE,
         path="/"
@@ -273,8 +273,8 @@ async def logout(response: Response):
         key="access_token",
         value="",
         httponly=True,
-        secure=SECURE_COOKIE,
-        samesite="lax",
+        secure=True,
+        samesite="none",
         max_age=0,  # Expire immediately
         path="/"
     )
