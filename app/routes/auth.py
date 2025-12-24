@@ -154,7 +154,7 @@ async def register(request: Request, user: UserCreate, response: Response):
         "username": user.username,
         "email": user.email,
         "password": get_password_hash(user.password),
-        "email_verified": False,
+        "email_verified": True,
         "createdAt": datetime.utcnow()
     }
     
