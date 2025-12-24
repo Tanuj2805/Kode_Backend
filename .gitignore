@@ -1,0 +1,37 @@
+# =========================
+# Environment / Secrets
+# =========================
+.env
+
+# =========================
+# Python
+# =========================
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.log
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# =========================
+# Node (if any frontend/tools)
+# =========================
+node_modules/
+
+# =========================
+# IDE / OS
+# =========================
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# =========================
+# Build / Cache
+# =========================
+dist/
+build/
