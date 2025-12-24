@@ -1,0 +1,555 @@
+import asyncio
+import tempfile
+import os
+import sys
+import shutil
+from pathlib import Path
+
+# Windows-specific fix for subprocess execution
+if sys.platform == 'win32':
+    # Set the event loop policy for subprocess support
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+
+async def execute_code_generic(code: str, input_data: str, command: list, filename: str, prefix: str) -> dict:
+    """Generic executor for running code"""
+    
+    # Windows-specific: Ensure we have the correct event loop
+    if sys.platform == 'win32':
+        try:
+            loop = asyncio.get_running_loop()
+            print(f"[DEBUG] Current loop: {loop.__class__.__name__}")
+        except RuntimeError:
+            pass
+    print(f"[DEBUG] Starting execution: command={command}, filename={filename}")
+    temp_dir = tempfile.mkdtemp(prefix=prefix)
+    code_file = os.path.join(temp_dir, filename)
+    print(f"[DEBUG] Created temp dir: {temp_dir}")
+    
+    try:
+        # Write code to file
+        print(f"[DEBUG] Writing code to file: {code_file}")
+        with open(code_file, 'w', encoding='utf-8') as f:
+            f.write(code)
+        print(f"[DEBUG] Code written successfully")
+        
+        # Windows fix: Verify event loop before subprocess
+        if sys.platform == 'win32':
+            loop = asyncio.get_running_loop()
+            print(f"[DEBUG] Loop type: {loop.__class__.__name__}")
+            if loop.__class__.__name__ != 'ProactorEventLoop':
+                return {
+                    "success": False,
+                    "output": "",
+                    "error": f"Windows subprocess error: Wrong loop type ({loop.__class__.__name__})"
+                }
+        
+        # Create process
+        process = await asyncio.create_subprocess_exec(
+            *command,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=temp_dir
+        )
+        
+        # Send input and get output with timeout
+        try:
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(input=input_data.encode('utf-8')),
+                timeout=10.0
+            )
+        except asyncio.TimeoutError:
+            process.kill()
+            await process.wait()
+            return {
+                "success": False,
+                "output": "",
+                "error": "Execution timeout (10 seconds)"
+            }
+        
+        # Process results
+        stdout_text = stdout.decode('utf-8', errors='replace').strip()
+        stderr_text = stderr.decode('utf-8', errors='replace').strip()
+        
+        if process.returncode == 0:
+            return {
+                "success": True,
+                "output": stdout_text or "Code executed successfully",
+                "error": None
+            }
+        else:
+            return {
+                "success": False,
+                "output": stdout_text,
+                "error": stderr_text or "Execution failed"
+            }
+            
+    except FileNotFoundError as e:
+        # Compiler/interpreter not found
+        compiler_name = command[0] if command else "compiler"
+        return {
+            "success": False,
+            "output": "",
+            "error": f"❌ {compiler_name} is not installed on this system.\n\nTo use this language, please install {compiler_name} first.\nSee LANGUAGE_REQUIREMENTS.md for installation instructions."
+        }
+    except Exception as e:
+        import traceback
+        error_detail = f"{type(e).__name__}: {str(e)}"
+        print(f"Execution error: {error_detail}")  # Log to console
+        print(traceback.format_exc())
+        return {
+            "success": False,
+            "output": "",
+            "error": error_detail
+        }
+    finally:
+        # Cleanup
+        try:
+            shutil.rmtree(temp_dir)
+        except:
+            pass
+
+async def execute_python(code: str, input_data: str = "") -> dict:
+    """Execute Python code"""
+    import sys
+    python_exe = sys.executable  # Use the same Python that's running this service
+    return await execute_code_generic(
+        code, input_data,
+        [python_exe, 'code.py'],
+        'code.py',
+        'pycode_'
+    )
+
+async def execute_javascript(code: str, input_data: str = "") -> dict:
+    """Execute JavaScript/Node.js code"""
+    return await execute_code_generic(
+        code, input_data,
+        ['node', 'code.js'],
+        'code.js',
+        'jscode_'
+    )
+
+async def execute_java(code: str, input_data: str = "") -> dict:
+    """Execute Java code"""
+    temp_dir = tempfile.mkdtemp(prefix="javacode_")
+    
+    # Extract class name from code
+    class_name = "Main"
+    for line in code.split('\n'):
+        if 'public class' in line:
+            parts = line.split('public class')[1].strip().split()
+            if parts:
+                class_name = parts[0].replace('{', '').strip()
+            break
+    
+    code_file = os.path.join(temp_dir, f"{class_name}.java")
+    
+    try:
+        # Write code to file
+        with open(code_file, 'w', encoding='utf-8') as f:
+            f.write(code)
+        
+        # Compile
+        compile_process = await asyncio.create_subprocess_exec(
+            'javac', f"{class_name}.java",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=temp_dir
+        )
+    except FileNotFoundError:
+        return {
+            "success": False,
+            "output": "",
+            "error": "❌ Java compiler (javac) is not installed.\n\nInstall Java Development Kit (JDK) to use Java.\nSee LANGUAGE_REQUIREMENTS.md for instructions."
+        }
+    
+    try:
+        
+        stdout, stderr = await asyncio.wait_for(
+            compile_process.communicate(),
+            timeout=10.0
+        )
+        
+        if compile_process.returncode != 0:
+            return {
+                "success": False,
+                "output": "",
+                "error": f"Compilation error:\n{stderr.decode('utf-8', errors='replace')}"
+            }
+        
+        # Run
+        run_process = await asyncio.create_subprocess_exec(
+            'java', class_name,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=temp_dir
+        )
+        
+        try:
+            stdout, stderr = await asyncio.wait_for(
+                run_process.communicate(input=input_data.encode('utf-8')),
+                timeout=10.0
+            )
+        except asyncio.TimeoutError:
+            run_process.kill()
+            await run_process.wait()
+            return {
+                "success": False,
+                "output": "",
+                "error": "Execution timeout (10 seconds)"
+            }
+        
+        stdout_text = stdout.decode('utf-8', errors='replace').strip()
+        stderr_text = stderr.decode('utf-8', errors='replace').strip()
+        
+        if run_process.returncode == 0:
+            return {
+                "success": True,
+                "output": stdout_text or "Code executed successfully",
+                "error": None
+            }
+        else:
+            return {
+                "success": False,
+                "output": stdout_text,
+                "error": stderr_text or "Execution failed"
+            }
+            
+    except Exception as e:
+        return {
+            "success": False,
+            "output": "",
+            "error": f"Error: {str(e)}"
+        }
+    finally:
+        try:
+            shutil.rmtree(temp_dir)
+        except:
+            pass
+
+async def execute_cpp(code: str, input_data: str = "") -> dict:
+    """Execute C++ code"""
+    temp_dir = tempfile.mkdtemp(prefix="cppcode_")
+    code_file = os.path.join(temp_dir, "code.cpp")
+    exe_file = os.path.join(temp_dir, "code.exe" if os.name == 'nt' else "code")
+    
+    try:
+        # Write code to file
+        with open(code_file, 'w', encoding='utf-8') as f:
+            f.write(code)
+        
+        # Compile
+        compile_cmd = ['g++', 'code.cpp', '-o', 'code.exe' if os.name == 'nt' else 'code']
+        compile_process = await asyncio.create_subprocess_exec(
+            *compile_cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=temp_dir
+        )
+    except FileNotFoundError:
+        return {
+            "success": False,
+            "output": "",
+            "error": "❌ C++ compiler (g++) is not installed.\n\nInstall MinGW-w64 or Visual Studio to use C++.\nSee LANGUAGE_REQUIREMENTS.md for instructions."
+        }
+    
+    try:
+        
+        stdout, stderr = await asyncio.wait_for(
+            compile_process.communicate(),
+            timeout=10.0
+        )
+        
+        if compile_process.returncode != 0:
+            return {
+                "success": False,
+                "output": "",
+                "error": f"Compilation error:\n{stderr.decode('utf-8', errors='replace')}"
+            }
+        
+        # Run
+        run_process = await asyncio.create_subprocess_exec(
+            exe_file,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=temp_dir
+        )
+        
+        try:
+            stdout, stderr = await asyncio.wait_for(
+                run_process.communicate(input=input_data.encode('utf-8')),
+                timeout=10.0
+            )
+        except asyncio.TimeoutError:
+            run_process.kill()
+            await run_process.wait()
+            return {
+                "success": False,
+                "output": "",
+                "error": "Execution timeout (10 seconds)"
+            }
+        
+        stdout_text = stdout.decode('utf-8', errors='replace').strip()
+        stderr_text = stderr.decode('utf-8', errors='replace').strip()
+        
+        if run_process.returncode == 0:
+            return {
+                "success": True,
+                "output": stdout_text or "Code executed successfully",
+                "error": None
+            }
+        else:
+            return {
+                "success": False,
+                "output": stdout_text,
+                "error": stderr_text or "Execution failed"
+            }
+            
+    except Exception as e:
+        return {
+            "success": False,
+            "output": "",
+            "error": f"Error: {str(e)}"
+        }
+    finally:
+        try:
+            shutil.rmtree(temp_dir)
+        except:
+            pass
+
+async def execute_c(code: str, input_data: str = "") -> dict:
+    """Execute C code"""
+    temp_dir = tempfile.mkdtemp(prefix="ccode_")
+    code_file = os.path.join(temp_dir, "code.c")
+    exe_file = os.path.join(temp_dir, "code.exe" if os.name == 'nt' else "code")
+    
+    try:
+        with open(code_file, 'w', encoding='utf-8') as f:
+            f.write(code)
+        
+        # Compile
+        compile_cmd = ['gcc', 'code.c', '-o', 'code.exe' if os.name == 'nt' else 'code']
+        compile_process = await asyncio.create_subprocess_exec(
+            *compile_cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=temp_dir
+        )
+    except FileNotFoundError:
+        return {
+            "success": False,
+            "output": "",
+            "error": "❌ C compiler (gcc) is not installed.\n\nInstall MinGW-w64 or Visual Studio to use C.\nSee LANGUAGE_REQUIREMENTS.md for instructions."
+        }
+    
+    try:
+        
+        stdout, stderr = await asyncio.wait_for(
+            compile_process.communicate(),
+            timeout=10.0
+        )
+        
+        if compile_process.returncode != 0:
+            return {
+                "success": False,
+                "output": "",
+                "error": f"Compilation error:\n{stderr.decode('utf-8', errors='replace')}"
+            }
+        
+        # Run
+        run_process = await asyncio.create_subprocess_exec(
+            exe_file,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=temp_dir
+        )
+        
+        try:
+            stdout, stderr = await asyncio.wait_for(
+                run_process.communicate(input=input_data.encode('utf-8')),
+                timeout=10.0
+            )
+        except asyncio.TimeoutError:
+            run_process.kill()
+            await run_process.wait()
+            return {
+                "success": False,
+                "output": "",
+                "error": "Execution timeout (10 seconds)"
+            }
+        
+        stdout_text = stdout.decode('utf-8', errors='replace').strip()
+        stderr_text = stderr.decode('utf-8', errors='replace').strip()
+        
+        if run_process.returncode == 0:
+            return {
+                "success": True,
+                "output": stdout_text or "Code executed successfully",
+                "error": None
+            }
+        else:
+            return {
+                "success": False,
+                "output": stdout_text,
+                "error": stderr_text or "Execution failed"
+            }
+            
+    except Exception as e:
+        return {
+            "success": False,
+            "output": "",
+            "error": f"Error: {str(e)}"
+        }
+    finally:
+        try:
+            shutil.rmtree(temp_dir)
+        except:
+            pass
+
+async def execute_go(code: str, input_data: str = "") -> dict:
+    """Execute Go code"""
+    return await execute_code_generic(
+        code, input_data,
+        ['go', 'run', 'code.go'],
+        'code.go',
+        'gocode_'
+    )
+
+async def execute_rust(code: str, input_data: str = "") -> dict:
+    """Execute Rust code"""
+    temp_dir = tempfile.mkdtemp(prefix="rustcode_")
+    code_file = os.path.join(temp_dir, "code.rs")
+    exe_file = os.path.join(temp_dir, "code.exe" if os.name == 'nt' else "code")
+    
+    try:
+        with open(code_file, 'w', encoding='utf-8') as f:
+            f.write(code)
+        
+        # Compile
+        compile_cmd = ['rustc', 'code.rs', '-o', 'code.exe' if os.name == 'nt' else 'code']
+        compile_process = await asyncio.create_subprocess_exec(
+            *compile_cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=temp_dir
+        )
+        
+        stdout, stderr = await asyncio.wait_for(
+            compile_process.communicate(),
+            timeout=15.0
+        )
+        
+        if compile_process.returncode != 0:
+            return {
+                "success": False,
+                "output": "",
+                "error": f"Compilation error:\n{stderr.decode('utf-8', errors='replace')}"
+            }
+        
+        # Run
+        run_process = await asyncio.create_subprocess_exec(
+            exe_file,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=temp_dir
+        )
+        
+        try:
+            stdout, stderr = await asyncio.wait_for(
+                run_process.communicate(input=input_data.encode('utf-8')),
+                timeout=10.0
+            )
+        except asyncio.TimeoutError:
+            run_process.kill()
+            await run_process.wait()
+            return {
+                "success": False,
+                "output": "",
+                "error": "Execution timeout (10 seconds)"
+            }
+        
+        stdout_text = stdout.decode('utf-8', errors='replace').strip()
+        stderr_text = stderr.decode('utf-8', errors='replace').strip()
+        
+        if run_process.returncode == 0:
+            return {
+                "success": True,
+                "output": stdout_text or "Code executed successfully",
+                "error": None
+            }
+        else:
+            return {
+                "success": False,
+                "output": stdout_text,
+                "error": stderr_text or "Execution failed"
+            }
+            
+    except Exception as e:
+        return {
+            "success": False,
+            "output": "",
+            "error": f"Error: {str(e)}"
+        }
+    finally:
+        try:
+            shutil.rmtree(temp_dir)
+        except:
+            pass
+
+async def execute_php(code: str, input_data: str = "") -> dict:
+    """Execute PHP code"""
+    return await execute_code_generic(
+        code, input_data,
+        ['php', 'code.php'],
+        'code.php',
+        'phpcode_'
+    )
+
+async def execute_ruby(code: str, input_data: str = "") -> dict:
+    """Execute Ruby code"""
+    return await execute_code_generic(
+        code, input_data,
+        ['ruby', 'code.rb'],
+        'code.rb',
+        'rubycode_'
+    )
+
+async def execute_bash(code: str, input_data: str = "") -> dict:
+    """Execute Bash script"""
+    return await execute_code_generic(
+        code, input_data,
+        ['bash', 'code.sh'],
+        'code.sh',
+        'bashcode_'
+    )
+
+# Language executors mapping
+EXECUTORS = {
+    'python': execute_python,
+    'javascript': execute_javascript,
+    'java': execute_java,
+    'cpp': execute_cpp,
+    'c': execute_c,
+    'go': execute_go,
+    'rust': execute_rust,
+    'php': execute_php,
+    'ruby': execute_ruby,
+    'bash': execute_bash,
+}
+
+async def execute_code(language: str, code: str, input_data: str = "") -> dict:
+    """Main execute function that routes to appropriate executor"""
+    executor = EXECUTORS.get(language)
+    
+    if not executor:
+        return {
+            "success": False,
+            "output": "",
+            "error": f"Language '{language}' is not supported or compiler not installed"
+        }
+    
+    return await executor(code, input_data)

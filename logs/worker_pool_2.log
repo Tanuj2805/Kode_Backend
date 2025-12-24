@@ -1,0 +1,12 @@
+2025-11-06 19:32:45,861 - worker_config - INFO - \u2699\ufe0f  Using default: 5 workers
+2025-11-06 19:32:45,862 - __main__ - INFO - ============================================================
+2025-11-06 19:32:45,862 - __main__ - INFO - \U0001f680 Starting AsyncIO Worker Pool
+2025-11-06 19:32:45,862 - __main__ - INFO -    Workers: 5
+2025-11-06 19:32:45,862 - __main__ - INFO -    Mode: Concurrent processing
+2025-11-06 19:32:45,863 - __main__ - INFO - ============================================================
+2025-11-06 19:32:45,863 - __main__ - INFO - \u2705 5 workers started successfully
+2025-11-06 19:32:45,864 - __main__ - INFO - \U0001f527 Worker-0 started and ready
+2025-11-06 19:32:45,865 - __main__ - INFO - \U0001f527 Worker-1 started and ready
+2025-11-06 19:32:45,866 - __main__ - INFO - \U0001f527 Worker-2 started and ready
+2025-11-06 19:32:45,866 - __main__ - INFO - \U0001f527 Worker-3 started and ready
+2025-11-06 19:32:45,866 - __main__ - INFO - \U0001f527 Worker-4 started and ready

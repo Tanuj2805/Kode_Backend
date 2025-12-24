@@ -1,0 +1,19 @@
+# Redis Queue Dependencies
+redis==5.0.1
+rq==1.15.1
+
+# Keep existing requirements...
+fastapi
+uvicorn
+python-dotenv
+pymongo
+
+
+
+
+
+
+
+
+
+
