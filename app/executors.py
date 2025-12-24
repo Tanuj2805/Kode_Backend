@@ -9,37 +9,24 @@ from datetime import datetime
 from pathlib import Path
 
 # Configure logging
-log_dir = Path("/var/log/kodecompiler")
-log_dir.mkdir(exist_ok=True, parents=True)
+# ===============================
+# Logging Configuration (Render-safe)
+# ===============================
 
-# Create logger
-executor_logger = logging.getLogger('executor')
+executor_logger = logging.getLogger("executor")
 executor_logger.setLevel(logging.DEBUG)
 
-# File handler - detailed logs
-log_file = log_dir / "executor.log"
-file_handler = logging.FileHandler(log_file)
-file_handler.setLevel(logging.DEBUG)
-file_formatter = logging.Formatter(
-    '%(asctime)s | %(levelname)-8s | %(funcName)-20s | %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
-)
-file_handler.setFormatter(file_formatter)
-
-# Error file handler - errors only
-error_log_file = log_dir / "executor_errors.log"
-error_handler = logging.FileHandler(error_log_file)
-error_handler.setLevel(logging.ERROR)
-error_formatter = logging.Formatter(
-    '%(asctime)s | %(levelname)s | %(funcName)s | %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
-)
-error_handler.setFormatter(error_formatter)
-
-# Add handlers if not already added
 if not executor_logger.handlers:
-    executor_logger.addHandler(file_handler)
-    executor_logger.addHandler(error_handler)
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.DEBUG)
+
+    formatter = logging.Formatter(
+        "%(asctime)s | %(levelname)-8s | %(funcName)-20s | %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S"
+    )
+    console_handler.setFormatter(formatter)
+
+    executor_logger.addHandler(console_handler)
 
 # Windows-specific fix for subprocess execution
 if sys.platform == 'win32':
