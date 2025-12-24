@@ -39,7 +39,7 @@ def set_auth_cookie(response: Response, token: str):
         value=token,
         httponly=True,  # Prevents JavaScript access (XSS protection)
         secure=SECURE_COOKIE,  # Only send over HTTPS in production
-        samesite="lax",  # CSRF protection
+        samesite="none",  # CSRF protection
         max_age=COOKIE_MAX_AGE,
         path="/"
     )
